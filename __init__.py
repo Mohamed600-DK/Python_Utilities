@@ -1,8 +1,8 @@
 # Standard library or always-safe imports
-from .Base_Processing import Base_process
-from .Base_Threading import Base_Thread
-from .files_handler import get_root_path, get_direct_download_link,set_paths,set_namespace,get_paths,get_namespace
-from .logger import LOGGER, LOG_LEVEL
+from .common.Base_Processing import Base_process
+from .common.Base_Threading import Base_Thread
+from .common.files_handler import get_root_path, get_direct_download_link,set_paths,set_namespace,get_paths,get_namespace
+from .common.logger import LOGGER, LOG_LEVEL
 __all__ = [
     "Base_process",
     "Base_Thread",
