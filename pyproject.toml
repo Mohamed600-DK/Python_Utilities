@@ -1,7 +1,7 @@
 [project]
 name = "common_utilities"
 version = "0.1.0"
-description = "Add your description here"
+description = "A collection of custom Python utility classes and functions designed to streamline common development tasks across different projects."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
