@@ -1,7 +1,9 @@
 import os
 from functools import lru_cache
 import re
-
+import json
+import io
+from typing import Dict, Union
 
 __APP_DIRS_PATHS={}
 __NAMESPACES=None
@@ -63,3 +65,40 @@ def create_logfile(log_name):
     if os.path.exists(file_path):
         os.remove(file_path)
     return file_path
+def write_json(write_data, file_path):
+    """
+    Writes data to a JSON file using optimized serialization.
+
+    Args:
+        write_data: The data to serialize and save.
+        file_path: Path to the file where data will be written.
+    """
+    # Open the file in binary write mode using BufferedWriter for optimized writing
+    with io.BufferedWriter(open(file_path, "wb")) as json_f:
+        
+        # Use json to serialize the data with an indentation of 2 spaces for readability
+        json_data = json.dumps(write_data, indent=2)
+
+        # Write the serialized data to the file
+        json_f.write(json_data)
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+def read_json(file_path) -> Dict:
+    """
+    Reads and deserializes data from a JSON file.
+
+    Args:
+        file_path (str): Path to the JSON file.
+
+    Returns:
+        Dict: Parsed JSON data or an empty dictionary if file does not exist or is empty.
+    """
+    # Check if the file exists, and if not, create an empty file
+    if not os.path.exists(file_path):
+        with open(file_path, "w") as json_f:
+            json_f=json.dump({"clients":[]},json_f)
+    # Open the file in binary read mode using BufferedReader for efficient reading
+    with io.BufferedReader(open(file_path, "rb")) as json_f:
+        # Read the content of the file
+        read_data = json_f.read()
+        # If the file is not empty, deserialize the JSON data; otherwise, return an empty dictionary
+        return json.loads(read_data) if read_data else {"clients":[]}
