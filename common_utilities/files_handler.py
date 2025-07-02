@@ -3,17 +3,18 @@ from functools import lru_cache
 import re
 import json
 import io
+import orjson
 from typing import Dict, Union
 
 __APP_DIRS_PATHS={}
 __NAMESPACES=None
 @lru_cache(maxsize=1)
-def get_root_path(APP_HEAD="main.py"):
+def get_root_path(start=__file__,APP_HEAD="main.py"):
     """
     Walks up the directory tree from the current file until it finds the marker file or directory.
     Returns the directory containing the marker, or the current file's parent if not found.
     """
-    current_dir = os.path.abspath(os.path.dirname(__file__))
+    current_dir = os.path.abspath(os.path.dirname(start))
     root_dir = os.path.abspath(os.sep)
     while True:
         marker_path = os.path.join(current_dir, APP_HEAD)
@@ -21,7 +22,7 @@ def get_root_path(APP_HEAD="main.py"):
             return current_dir
         if current_dir == root_dir:
             # Marker not found, fallback to previous behavior
-            return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            return os.path.dirname(os.path.dirname(os.path.abspath(start)))
         current_dir = os.path.dirname(current_dir)
 
 
@@ -76,9 +77,9 @@ def write_json(write_data, file_path):
     # Open the file in binary write mode using BufferedWriter for optimized writing
     with io.BufferedWriter(open(file_path, "wb")) as json_f:
         
-        # Use json to serialize the data with an indentation of 2 spaces for readability
-        json_data = json.dumps(write_data, indent=2)
-
+        # Use orjson to serialize the data with an indentation of 2 spaces for readability
+        json_data = orjson.dumps(write_data, option=orjson.OPT_INDENT_2)
+        
         # Write the serialized data to the file
         json_f.write(json_data)
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
