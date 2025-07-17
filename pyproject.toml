@@ -10,5 +10,7 @@ dependencies = [
     "pillow",
     "pynvml",
     "redis",
-    "orjson"
+    "orjson",
+    "pika",
+    "aio-pika"
 ]
