@@ -3,6 +3,7 @@ from .Base_Processing import Base_process
 from .Base_Threading import Base_Thread
 from .files_handler import get_root_path, get_direct_download_link,set_paths,set_namespace,get_paths,get_namespace,write_json,read_json
 from .logger import LOGGER, LOG_LEVEL
+from .RMQ import Sync_RMQ,Async_RMQ
 __all__ = [
     "Base_process",
     "Base_Thread",
@@ -12,7 +13,8 @@ __all__ = [
     "LOG_LEVEL",
     "set_paths",
     "set_namespace","get_paths","get_namespace",
-    "write_json","read_json"
+    "write_json","read_json",
+    "Sync_RMQ","Async_RMQ"
 ]
 # GPU Monitoring
 try:
