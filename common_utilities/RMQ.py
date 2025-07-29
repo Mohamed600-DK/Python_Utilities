@@ -139,7 +139,7 @@ class Sync_RMQ:
             
             self.consumer_connection, self.channel_consumer = self._create_connection("consumer")
 
-    def create_queues(self, queues: Union[List[str], str], routing_key: str = None, exchange_name: str = None, durable: bool = None):
+    def create_queues(self, queues: Union[List[str], str], routing_key: str = None, exchange_name: str = None, durable: bool = None, queue_arguments: dict = None):
         """Declare queues only (no exchange setup)"""
         if self.channel_producer is None:
             raise Exception("No producer connection available. Call create_producer() first.")
@@ -153,8 +153,9 @@ class Sync_RMQ:
         for queue_name in queue_list:
             try:
                 self.channel_producer.queue_declare(
-                    queue=queue_name, 
-                    durable=queue_durable
+                    queue=queue_name,
+                    durable=queue_durable,
+                    arguments=queue_arguments
                 )
                 
                 # Bind queue to exchange if using custom exchange
@@ -525,7 +526,7 @@ class Async_RMQ:
                     print(f"Failed to establish async RMQ consumer connection after {self.max_retries} attempts")
                     raise
 
-    async def create_queues(self, queues: Union[List[str], str], routing_key: str = None, exchange_name: str = None, durable: bool = None):
+    async def create_queues(self, queues: Union[List[str], str], routing_key: str = None, exchange_name: str = None, durable: bool = None, queue_arguments: dict = None):
         """Declare queues only (no exchange setup)"""
         if self.producer_channel is None:
             raise Exception("No producer connection available. Call create_producer() first.")
@@ -540,7 +541,9 @@ class Async_RMQ:
             try:
                 queue = await self.producer_channel.declare_queue(
                     queue_name, 
-                    durable=queue_durable
+                    durable=queue_durable,
+                    arguments=queue_arguments
+                    
                 )
                 
                 # Bind queue to exchange if using custom exchange
