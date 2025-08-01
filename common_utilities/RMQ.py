@@ -8,11 +8,18 @@ from urllib.parse import urlparse
 import time
 import traceback
 import asyncio
-
+from common_utilities.logger import LOGGER, LOG_LEVEL
 class Sync_RMQ:
-    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct"):
+    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
+        if isinstance(logger,str):
+            self.logs = LOGGER(logger)
+            self.logs.create_File_logger(f"{logger}",log_levels=["DEBUG", "INFO", "ERROR", "CRITICAL", "WARNING"])
+            self.logs.create_Stream_logger(log_levels=["INFO", "ERROR", "WARNING"])
+        elif isinstance(logger,LOGGER):
+            self.logs=logger
+        else:
+            self.logs = LOGGER(None)
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
-        
         # Connection parameters with proper settings
         self.__rmq_connection_parameters = pika.ConnectionParameters(
             host=parsed.hostname,
@@ -70,7 +77,7 @@ class Sync_RMQ:
             if self.consumer_connection and not self.consumer_connection.is_closed:
                 self.consumer_connection.close()
         except Exception as e:
-            print(f"Error closing RMQ connections: {e}")
+            self.logs.write_logs(f"Error closing RMQ connections: {e}", LOG_LEVEL.ERROR)
         finally:
             self.producer_connection = None
             self.consumer_connection = None
@@ -93,20 +100,20 @@ class Sync_RMQ:
                         exchange_type=self.exchange_type,
                         durable=self.exchange_durable
                     )
-                    print(f"Exchange '{self.exchange_name}' declared (type: {self.exchange_type})")
+                    self.logs.write_logs(f"Exchange '{self.exchange_name}' declared (type: {self.exchange_type})", LOG_LEVEL.INFO)
                 
-                print(f"RMQ {connection_type} connection established (attempt {attempt + 1})")
+                self.logs.write_logs(f"RMQ {connection_type} connection established (attempt {attempt + 1})", LOG_LEVEL.DEBUG)
                 return connection, channel
                 
             except pika.exceptions.AMQPConnectionError as e:
-                print(f"RMQ {connection_type} connection attempt {attempt + 1} failed: {e}")
+                self.logs.write_logs(f"RMQ {connection_type} connection attempt {attempt + 1} failed: {e}", LOG_LEVEL.WARNING)
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                 else:
-                    print(f"Failed to establish RMQ {connection_type} connection after {self.max_retries} attempts")
+                    self.logs.write_logs(f"Failed to establish RMQ {connection_type} connection after {self.max_retries} attempts", LOG_LEVEL.ERROR)
                     raise
             except Exception as e:
-                print(f"Unexpected error creating RMQ {connection_type} connection: {e}")
+                self.logs.write_logs(f"Unexpected error creating RMQ {connection_type} connection: {e}", LOG_LEVEL.ERROR)
                 raise
 
     def _ensure_producer_connection(self):
@@ -166,12 +173,12 @@ class Sync_RMQ:
                         queue=queue_name,
                         routing_key=binding_key
                     )
-                    print(f"Queue '{queue_name}' bound to exchange '{exchange}' with routing key '{binding_key}'")
+                    self.logs.write_logs(f"Queue '{queue_name}' bound to exchange '{exchange}' with routing key '{binding_key}'", LOG_LEVEL.INFO)
                 else:
-                    print(f"Queue '{queue_name}' declared (durable={queue_durable})")
+                    self.logs.write_logs(f"Queue '{queue_name}' declared (durable={queue_durable})", LOG_LEVEL.INFO)
                 self._declared_queues[queue_name] = True  # Store queue name for sync version
             except Exception as e:
-                print(f"Failed to declare queue '{queue_name}': {e}")
+                self.logs.write_logs(f"Failed to declare queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                 raise
 
     def create_producer(self, exchange_name: str = None, exchange_type: str = None):
@@ -190,12 +197,12 @@ class Sync_RMQ:
                     exchange_type=ex_type,
                     durable=self.exchange_durable
                 )
-                print(f"Producer exchange '{exchange}' declared (type: {ex_type})")
+                self.logs.write_logs(f"Producer exchange '{exchange}' declared (type: {ex_type})", LOG_LEVEL.INFO)
             except Exception as e:
-                print(f"Failed to declare producer exchange '{exchange}': {e}")
+                self.logs.write_logs(f"Failed to declare producer exchange '{exchange}': {e}", LOG_LEVEL.ERROR)
                 raise
         
-        print(f"Producer connection established")
+        self.logs.write_logs(f"Producer connection established", LOG_LEVEL.INFO)
 
     def create_consumer(self, exchange_name: str = None, exchange_type: str = None):
         """Create consumer connection and setup exchange"""
@@ -213,12 +220,12 @@ class Sync_RMQ:
                     exchange_type=ex_type,
                     durable=self.exchange_durable
                 )
-                print(f"Consumer exchange '{exchange}' declared (type: {ex_type})")
+                self.logs.write_logs(f"Consumer exchange '{exchange}' declared (type: {ex_type})", LOG_LEVEL.INFO)
             except Exception as e:
-                print(f"Failed to declare consumer exchange '{exchange}': {e}")
+                self.logs.write_logs(f"Failed to declare consumer exchange '{exchange}': {e}", LOG_LEVEL.ERROR)
                 raise
         
-        print(f"Consumer connection established")
+        self.logs.write_logs(f"Consumer connection established", LOG_LEVEL.INFO)
 
     def publish_data(self, data, queue_name: str=None, routing_key: str = None, exchange_name: str = None):
         """Publish data to queue with retry logic and custom routing"""
@@ -246,23 +253,23 @@ class Sync_RMQ:
                 )
                 
                 if exchange:
-                    print(f"Published message to exchange '{exchange}' with routing key '{routing}'")
+                    self.logs.write_logs(f"Published message to exchange '{exchange}' with routing key '{routing}'", LOG_LEVEL.INFO)
                 else:
-                    print(f"Published message to queue '{queue_name}'")
+                    self.logs.write_logs(f"Published message to queue '{queue_name}'", LOG_LEVEL.INFO)
                 return True
                 
             except (pika.exceptions.AMQPConnectionError, pika.exceptions.AMQPChannelError) as e:
-                print(f"RMQ publish attempt {attempt + 1} failed: {e}")
+                self.logs.write_logs(f"RMQ publish attempt {attempt + 1} failed: {e}", LOG_LEVEL.WARNING)
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     # Force reconnection on next attempt
                     self.channel_producer = None
                     continue
                 else:
-                    print(f"Failed to publish after {self.max_retries} attempts")
+                    self.logs.write_logs(f"Failed to publish after {self.max_retries} attempts", LOG_LEVEL.ERROR)
                     raise
             except Exception as e:
-                print(f"Error publishing message: {e}")
+                self.logs.write_logs(f"Error publishing message: {e}", LOG_LEVEL.ERROR)
                 raise
         
         return False
@@ -278,14 +285,14 @@ class Sync_RMQ:
                     # Pass payload as first argument, then original args and kwargs
                     result = inner_func(payload)
                     ch.basic_ack(delivery_tag=method.delivery_tag)
-                    print(f"Message processed successfully from queue '{queue_name}'")
+                    self.logs.write_logs(f"Message processed successfully from queue '{queue_name}'", LOG_LEVEL.INFO)
                     return result
                 except pkl.UnpicklingError as e:
-                    print(f"Failed to deserialize message from queue '{queue_name}': {e}")
+                    self.logs.write_logs(f"Failed to deserialize message from queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                     ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
                 except Exception as e:
-                    print(f"Error handling message from queue '{queue_name}': {e}")
-                    print(traceback.format_exc())
+                    self.logs.write_logs(f"Error handling message from queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
+                    self.logs.write_logs(traceback.format_exc(), LOG_LEVEL.DEBUG)
                     ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 
             self.channel_consumer.basic_consume(
@@ -301,50 +308,50 @@ class Sync_RMQ:
 
     def start_consuming(self):
         """Start consuming with proper error handling"""
-        print(f"Consumer channel exists: {self.channel_consumer is not None}")
-        print(f"Consumer channel closed: {self.channel_consumer.is_closed if self.channel_consumer else 'N/A'}")
-        print(f"Registered callbacks: {len(self._consumer_callbacks)}")
-        print(f"Declared queues: {list(self._declared_queues.keys())}")
+        self.logs.write_logs(f"Consumer channel exists: {self.channel_consumer is not None}", LOG_LEVEL.DEBUG)
+        self.logs.write_logs(f"Consumer channel closed: {self.channel_consumer.is_closed if self.channel_consumer else 'N/A'}", LOG_LEVEL.DEBUG)
+        self.logs.write_logs(f"Registered callbacks: {len(self._consumer_callbacks)}", LOG_LEVEL.DEBUG)
+        self.logs.write_logs(f"Declared queues: {list(self._declared_queues.keys())}", LOG_LEVEL.DEBUG)
         
         if not self.channel_consumer:
-            print("No consumer channel available. Call create_consumer() first.")
+            self.logs.write_logs("No consumer channel available. Call create_consumer() first.", LOG_LEVEL.ERROR)
             return
 
         if not self._consumer_callbacks:
-            print("No consumer callbacks registered. Use @rmq.consume_messages() decorator first.")
+            self.logs.write_logs("No consumer callbacks registered. Use @rmq.consume_messages() decorator first.", LOG_LEVEL.ERROR)
             return
             
         # Validate that all queues used in callbacks have been declared
         callback_queues = [queue_name for queue_name, _ in self._consumer_callbacks]
         undeclared_queues = [q for q in callback_queues if q not in self._declared_queues]
         if undeclared_queues:
-            print(f"Warning: Some queues used in callbacks were not explicitly declared: {undeclared_queues}")
-            print("Consider calling create_queues() first for better queue management.")
+            self.logs.write_logs(f"Some queues used in callbacks were not explicitly declared: {undeclared_queues}", LOG_LEVEL.WARNING)
+            self.logs.write_logs("Consider calling create_queues() first for better queue management.", LOG_LEVEL.WARNING)
             
-        print("Starting RMQ message consumption...")        
+        self.logs.write_logs("Starting RMQ message consumption...", LOG_LEVEL.INFO)        
         try:
             self.channel_consumer.start_consuming()
         except KeyboardInterrupt:
-            print("Consumption interrupted by user")
+            self.logs.write_logs("Consumption interrupted by user", LOG_LEVEL.INFO)
             self.channel_consumer.stop_consuming()
         except pika.exceptions.AMQPConnectionError as e:
-            print(f"Connection lost during consumption: {e}")
+            self.logs.write_logs(f"Connection lost during consumption: {e}", LOG_LEVEL.ERROR)
             raise
         except Exception as e:
-            print(f"Error during consumption: {e}")
-            print(traceback.format_exc())
+            self.logs.write_logs(f"Error during consumption: {e}", LOG_LEVEL.ERROR)
+            self.logs.write_logs(traceback.format_exc(), LOG_LEVEL.ERROR)
             raise
         finally:
-            print("RMQ consumption stopped")
+            self.logs.write_logs("RMQ consumption stopped", LOG_LEVEL.INFO)
 
     def stop_consuming(self):
         """Stop consuming messages"""
         if self.channel_consumer:
             try:
                 self.channel_consumer.stop_consuming()
-                print("RMQ consumption stopped")
+                self.logs.write_logs("RMQ consumption stopped", LOG_LEVEL.INFO)
             except Exception as e:
-                print(f"Error stopping consumption: {e}")
+                self.logs.write_logs(f"Error stopping consumption: {e}", LOG_LEVEL.ERROR)
 
     def get_declared_queues(self) -> list:
         """Get list of declared queue names"""
@@ -372,7 +379,15 @@ class Sync_RMQ:
             return False
 #-----------------------------------------------------------------------------------------------------------------------------------#
 class Async_RMQ:
-    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct"):
+    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
+        if isinstance(logger,str):
+            self.logs = LOGGER(logger)
+            self.logs.create_File_logger(f"{logger}")
+            self.logs.create_Stream_logger()
+        elif isinstance(logger,LOGGER):
+            self.logs=logger
+        else:
+            self.logs = LOGGER(None)
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
         self.connection_url = f"amqp://{parsed.hostname}:{parsed.port or 5672}"
 
@@ -432,7 +447,7 @@ class Async_RMQ:
             if self.consumer_connection and not self.consumer_connection.is_closed:
                 await self.consumer_connection.close()
         except Exception as e:
-            print(f"Error closing async RMQ connections: {e}")
+            self.logs.write_logs(f"Error closing async RMQ connections: {e}", LOG_LEVEL.ERROR)
         finally:
             self.producer_connection = None
             self.consumer_connection = None
@@ -486,16 +501,16 @@ class Async_RMQ:
                             type=getattr(aio_pika.ExchangeType, self.exchange_type.upper()),
                             durable=self.exchange_durable
                         )
-                        print(f"Async exchange '{self.exchange_name}' declared (type: {self.exchange_type})")
+                        self.logs.write_logs(f"Async exchange '{self.exchange_name}' declared (type: {self.exchange_type})", LOG_LEVEL.INFO)
                     
-                    print(f"Async RMQ producer connection established (attempt {attempt + 1})")
+                    self.logs.write_logs(f"Async RMQ producer connection established (attempt {attempt + 1})", LOG_LEVEL.INFO)
                     return
             except Exception as e:
-                print(f"Async RMQ producer connection attempt {attempt + 1} failed: {e}")
+                self.logs.write_logs(f"Async RMQ producer connection attempt {attempt + 1} failed: {e}", LOG_LEVEL.WARNING)
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
-                    print(f"Failed to establish async RMQ producer connection after {self.max_retries} attempts")
+                    self.logs.write_logs(f"Failed to establish async RMQ producer connection after {self.max_retries} attempts", LOG_LEVEL.ERROR)
                     raise
 
     async def __connect_consumer(self):
@@ -514,16 +529,16 @@ class Async_RMQ:
                             type=getattr(aio_pika.ExchangeType, self.exchange_type.upper()),
                             durable=self.exchange_durable
                         )
-                        print(f"Async exchange '{self.exchange_name}' declared (type: {self.exchange_type})")
+                        self.logs.write_logs(f"Async exchange '{self.exchange_name}' declared (type: {self.exchange_type})", LOG_LEVEL.INFO)
                     
-                    print(f"Async RMQ consumer connection established (attempt {attempt + 1})")
+                    self.logs.write_logs(f"Async RMQ consumer connection established (attempt {attempt + 1})", LOG_LEVEL.INFO)
                     return
             except Exception as e:
-                print(f"Async RMQ consumer connection attempt {attempt + 1} failed: {e}")
+                self.logs.write_logs(f"Async RMQ consumer connection attempt {attempt + 1} failed: {e}", LOG_LEVEL.WARNING)
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
-                    print(f"Failed to establish async RMQ consumer connection after {self.max_retries} attempts")
+                    self.logs.write_logs(f"Failed to establish async RMQ consumer connection after {self.max_retries} attempts", LOG_LEVEL.ERROR)
                     raise
 
     async def create_queues(self, queues: Union[List[str], str], routing_key: str = None, exchange_name: str = None, durable: bool = None, queue_arguments: dict = None):
@@ -550,12 +565,12 @@ class Async_RMQ:
                 if exchange:
                     binding_key = routing_key or queue_name
                     await queue.bind(exchange, routing_key=binding_key)
-                    print(f"Async queue '{queue_name}' bound to exchange '{exchange}' with routing key '{binding_key}'")
+                    self.logs.write_logs(f"Async queue '{queue_name}' bound to exchange '{exchange}' with routing key '{binding_key}'", LOG_LEVEL.INFO)
                 else:
-                    print(f"Async queue '{queue_name}' declared (durable={queue_durable})")
+                    self.logs.write_logs(f"Async queue '{queue_name}' declared (durable={queue_durable})", LOG_LEVEL.INFO)
                 self._declared_queues[queue_name]=queue
             except Exception as e:
-                print(f"Failed to declare async queue '{queue_name}': {e}")
+                self.logs.write_logs(f"Failed to declare async queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                 raise
 
     async def create_producer(self, exchange_name: str = None, exchange_type: str = None):
@@ -574,12 +589,12 @@ class Async_RMQ:
                     type=getattr(aio_pika.ExchangeType, ex_type.upper()),
                     durable=self.exchange_durable
                 )
-                print(f"Async producer exchange '{exchange}' declared (type: {ex_type})")
+                self.logs.write_logs(f"Async producer exchange '{exchange}' declared (type: {ex_type})", LOG_LEVEL.INFO)
             except Exception as e:
-                print(f"Failed to declare async producer exchange '{exchange}': {e}")
+                self.logs.write_logs(f"Failed to declare async producer exchange '{exchange}': {e}", LOG_LEVEL.ERROR)
                 raise
         
-        print(f"Async producer connection established")
+        self.logs.write_logs(f"Async producer connection established", LOG_LEVEL.INFO)
 
     async def create_consumer(self, exchange_name: str = None, exchange_type: str = None):
         """Create consumer connection and setup exchange"""
@@ -597,12 +612,12 @@ class Async_RMQ:
                     type=getattr(aio_pika.ExchangeType, ex_type.upper()),
                     durable=self.exchange_durable
                 )
-                print(f"Async consumer exchange '{exchange}' declared (type: {ex_type})")
+                self.logs.write_logs(f"Async consumer exchange '{exchange}' declared (type: {ex_type})", LOG_LEVEL.INFO)
             except Exception as e:
-                print(f"Failed to declare async consumer exchange '{exchange}': {e}")
+                self.logs.write_logs(f"Failed to declare async consumer exchange '{exchange}': {e}", LOG_LEVEL.ERROR)
                 raise
         
-        print(f"Async consumer connection established")
+        self.logs.write_logs(f"Async consumer connection established", LOG_LEVEL.INFO)
 
     async def publish_data(self, data, queue_name: str, routing_key: str = None, exchange_name: str = None):
         """Publish data to queue with retry logic and custom routing"""
@@ -626,18 +641,18 @@ class Async_RMQ:
                     exchange_obj = await self.producer_channel.get_exchange(exchange)
                     routing = routing_key or queue_name
                     await exchange_obj.publish(message, routing_key=routing)
-                    print(f"Published async message to exchange '{exchange}' with routing key '{routing}'")
+                    self.logs.write_logs(f"Published async message to exchange '{exchange}' with routing key '{routing}'", LOG_LEVEL.INFO)
                 else:
                     await self.producer_channel.default_exchange.publish(
                         message,
                         routing_key=queue_name
                     )
-                    print(f"Published async message to queue '{queue_name}'")
+                    self.logs.write_logs(f"Published async message to queue '{queue_name}'", LOG_LEVEL.INFO)
                 
                 return True
                 
             except Exception as e:
-                print(f"Async RMQ publish attempt {attempt + 1} failed: {e}")
+                self.logs.write_logs(f"Async RMQ publish attempt {attempt + 1} failed: {e}", LOG_LEVEL.WARNING)
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                     # Force reconnection on next attempt
@@ -645,7 +660,7 @@ class Async_RMQ:
                     self.producer_channel = None
                     continue
                 else:
-                    print(f"Failed to async publish after {self.max_retries} attempts")
+                    self.logs.write_logs(f"Failed to async publish after {self.max_retries} attempts", LOG_LEVEL.ERROR)
                     raise
         
         return False
@@ -659,14 +674,14 @@ class Async_RMQ:
                         payload: dict = pkl.loads(message.body)
                         # Pass payload as first argument
                         result = await inner_func(payload)
-                        print(f"Async message processed successfully from queue '{queue_name}'")
+                        self.logs.write_logs(f"Async message processed successfully from queue '{queue_name}'", LOG_LEVEL.INFO)
                         return result
                     except pkl.UnpicklingError as e:
-                        print(f"Failed to deserialize async message from queue '{queue_name}': {e}")
+                        self.logs.write_logs(f"Failed to deserialize async message from queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                         await message.nack(requeue=False)
                     except Exception as e:
-                        print(f"Error handling async message from queue '{queue_name}': {e}")
-                        print(traceback.format_exc())
+                        self.logs.write_logs(f"Error handling async message from queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
+                        self.logs.write_logs(traceback.format_exc(), LOG_LEVEL.DEBUG)
                         await message.nack(requeue=True)
 
             self._consumer_callbacks.append((queue_name, callback))  # Store callback, not inner_func
@@ -676,19 +691,19 @@ class Async_RMQ:
 
     async def start_consuming(self):
         """Start consuming with proper error handling"""
-        print(f"Async consumer channel exists: {self.consumer_channel is not None}")
-        print(f"Async consumer channel closed: {self.consumer_channel.is_closed if self.consumer_channel else 'N/A'}")
-        print(f"Async registered callbacks: {len(self._consumer_callbacks)}")
+        self.logs.write_logs(f"Async consumer channel exists: {self.consumer_channel is not None}", LOG_LEVEL.DEBUG)
+        self.logs.write_logs(f"Async consumer channel closed: {self.consumer_channel.is_closed if self.consumer_channel else 'N/A'}", LOG_LEVEL.DEBUG)
+        self.logs.write_logs(f"Async registered callbacks: {len(self._consumer_callbacks)}", LOG_LEVEL.DEBUG)
         
         if not self.consumer_channel:
-            print("No async consumer channel available. Call create_consumer() first.")
+            self.logs.write_logs("No async consumer channel available. Call create_consumer() first.", LOG_LEVEL.ERROR)
             return
 
         if not self._consumer_callbacks:
-            print("No async consumer callbacks registered. Use @rmq.consume_messages() decorator first.")
+            self.logs.write_logs("No async consumer callbacks registered. Use @rmq.consume_messages() decorator first.", LOG_LEVEL.ERROR)
             return
 
-        print("Starting async RMQ message consumption...")
+        self.logs.write_logs("Starting async RMQ message consumption...", LOG_LEVEL.INFO)
         try:
             await self._ensure_consumer_connection()
 
@@ -698,35 +713,34 @@ class Async_RMQ:
                     if queue_name in self._declared_queues:
                         queue = self._declared_queues[queue_name]
                         await queue.consume(handler)
-                        print(f"Started async consuming from queue '{queue_name}'")
+                        self.logs.write_logs(f"Started async consuming from queue '{queue_name}'", LOG_LEVEL.INFO)
                 except Exception as e:
-                    print(f"Error setting up async consumer for queue '{queue_name}': {e}")
+                    self.logs.write_logs(f"Error setting up async consumer for queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                     raise
 
-            print(" [*] Async consumer started. Waiting for messages...")
+            self.logs.write_logs(" [*] Async consumer started. Waiting for messages...", LOG_LEVEL.INFO)
             # Keep the connection alive
             await asyncio.Event().wait()
             
         except KeyboardInterrupt:
-            print("Async consumption interrupted by user")
+            self.logs.write_logs("Async consumption interrupted by user", LOG_LEVEL.INFO)
             await self.stop_consuming()
         except Exception as e:
-            print(f"Error during async consumption: {e}")
-            print(traceback.format_exc())
+            self.logs.write_logs(f"Error during async consumption: {e}", LOG_LEVEL.ERROR)
+            self.logs.write_logs(traceback.format_exc(), LOG_LEVEL.DEBUG)
             raise
         finally:
-            print("Async RMQ consumption stopped")
+            self.logs.write_logs("Async RMQ consumption stopped", LOG_LEVEL.INFO)
 
     async def stop_consuming(self):
         """Stop consuming messages"""
         try:
             if self.consumer_channel and not self.consumer_channel.is_closed:
-                # Cancel all consumers
-                for tag in list(self.consumer_channel._consumers.keys()):
-                    await self.consumer_channel.cancel(tag)
-                print("Async RMQ consumption stopped")
+                # Close the consumer channel to stop all consumers
+                await self.consumer_channel.close()
+                self.logs.write_logs("Async RMQ consumption stopped", LOG_LEVEL.INFO)
         except Exception as e:
-            print(f"Error stopping async consumption: {e}")
+            self.logs.write_logs(f"Error stopping async consumption: {e}", LOG_LEVEL.ERROR)
 
     def get_declared_queues(self) -> list:
         """Get list of declared queue names"""
