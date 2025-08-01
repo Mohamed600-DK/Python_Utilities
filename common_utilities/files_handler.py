@@ -24,24 +24,22 @@ def get_root_path(start=__file__,APP_HEAD="main.py"):
             # Marker not found, fallback to previous behavior
             return os.path.dirname(os.path.dirname(os.path.abspath(start)))
         current_dir = os.path.dirname(current_dir)
-
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def set_paths(APP_PATHS):
     __APP_DIRS_PATHS.update(APP_PATHS)
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 @lru_cache(maxsize=1)
 def get_paths():
     return __APP_DIRS_PATHS
-
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def set_namespace(namespace):
     global __NAMESPACES
     __NAMESPACES=namespace
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 @lru_cache(maxsize=1)
 def get_namespace():
     return __NAMESPACES
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def get_direct_download_link(sharing_link):
     # Extract the file ID from the sharing link
     file_id_match = re.search(r"/d/([a-zA-Z0-9_-]+)", sharing_link)
@@ -53,19 +51,23 @@ def get_direct_download_link(sharing_link):
     # Construct the direct download link
     direct_link = f"https://drive.google.com/uc?id={file_id}&export=download"
     return direct_link 
-
-
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def create_logfile(log_name):
+    log_path=__APP_DIRS_PATHS["LOGS_ROOT_PATH"] if "LOGS_ROOT_PATH" in __APP_DIRS_PATHS and __APP_DIRS_PATHS["LOGS_ROOT_PATH"] is not None else os.getenv("LOGS_ROOT_PATH",None)
+    if log_path is None:
+        raise ValueError("LOGS_ROOT_PATH is not set in 'APP_DIRS_PATHS' or in 'env' variables.")
+    
     if __NAMESPACES:
-        logs_dir=os.path.join(__APP_DIRS_PATHS["LOGS_ROOT_PATH"],__NAMESPACES,"logs")
+        logs_dir=os.path.join(log_path,__NAMESPACES,"logs")
     else:
-        logs_dir=os.path.join(__APP_DIRS_PATHS["LOGS_ROOT_PATH"],"logs")
+        logs_dir=os.path.join(log_path,"logs")
 
     os.makedirs(logs_dir,exist_ok=True)
     file_path=os.path.join(logs_dir,f"{log_name}.log")
     if os.path.exists(file_path):
         os.remove(file_path)
     return file_path
+#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 def write_json(write_data, file_path):
     """
     Writes data to a JSON file using optimized serialization.
