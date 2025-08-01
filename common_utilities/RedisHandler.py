@@ -12,6 +12,12 @@ class RedisHandler:
         port= int(self.__REDIS_HOSTPORT) if self.__REDIS_HOSTPORT !=None else port
         self.redis = redis.Redis(host=host, port=port, db=db, decode_responses=False)
 
+    def close_connection(self):
+        """
+        Close the Redis connection
+        """
+        self.redis.close()
+
     def set_value(self, key, value):
         self.redis.set(key, pkl.dumps(value))
 
