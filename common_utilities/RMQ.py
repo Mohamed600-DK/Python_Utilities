@@ -1,3 +1,4 @@
+import os
 import pika
 import pickle as pkl
 import aio_pika
@@ -10,7 +11,7 @@ import traceback
 import asyncio
 from common_utilities.logger import LOGGER, LOG_LEVEL
 class Sync_RMQ:
-    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
+    def __init__(self, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
         if isinstance(logger,str):
             self.logs = LOGGER(logger)
             self.logs.create_File_logger(f"{logger}",log_levels=["DEBUG", "INFO", "ERROR", "CRITICAL", "WARNING"])
@@ -19,6 +20,7 @@ class Sync_RMQ:
             self.logs=logger
         else:
             self.logs = LOGGER(None)
+        connection_url: str=os.getenv("RMQ_URL", "localhost:5672")
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
         # Connection parameters with proper settings
         self.__rmq_connection_parameters = pika.ConnectionParameters(
@@ -379,7 +381,7 @@ class Sync_RMQ:
             return False
 #-----------------------------------------------------------------------------------------------------------------------------------#
 class Async_RMQ:
-    def __init__(self, connection_url: str, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
+    def __init__(self, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
         if isinstance(logger,str):
             self.logs = LOGGER(logger)
             self.logs.create_File_logger(f"{logger}")
@@ -388,6 +390,7 @@ class Async_RMQ:
             self.logs=logger
         else:
             self.logs = LOGGER(None)
+        connection_url: str=os.getenv("RMQ_URL", "localhost:5672")
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
         self.connection_url = f"amqp://{parsed.hostname}:{parsed.port or 5672}"
 
