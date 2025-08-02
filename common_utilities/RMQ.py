@@ -22,10 +22,14 @@ class Sync_RMQ:
             self.logs = LOGGER(None)
         connection_url: str=os.getenv("RMQ_URL", "localhost:5672")
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
+        credentials = None
+        if parsed.username and parsed.password:
+            credentials = pika.PlainCredentials(parsed.username, parsed.password)
         # Connection parameters with proper settings
         self.__rmq_connection_parameters = pika.ConnectionParameters(
             host=parsed.hostname,
             port=parsed.port or 5672,
+            credentials=credentials,
             connection_attempts=3,
             retry_delay=2,
             socket_timeout=10,
@@ -392,8 +396,10 @@ class Async_RMQ:
             self.logs = LOGGER(None)
         connection_url: str=os.getenv("RMQ_URL", "localhost:5672")
         parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
-        self.connection_url = f"amqp://{parsed.hostname}:{parsed.port or 5672}"
-
+        self.__connection_url = f"amqp://{parsed.hostname}:{parsed.port or 5672}"
+        self.__credentials = None
+        if parsed.username and parsed.password:
+            self.__credentials = pika.PlainCredentials(parsed.username, parsed.password)
         # Exchange configuration
         self.exchange_name = exchange_name  # Empty string means default exchange
         self.exchange_type = exchange_type  # direct, topic, fanout, headers
@@ -493,7 +499,11 @@ class Async_RMQ:
         for attempt in range(self.max_retries):
             try:
                 if not self.producer_connection:
-                    self.producer_connection = await aio_pika.connect_robust(self.connection_url)
+                    self.producer_connection = await aio_pika.connect_robust(
+                                                self.__connection_url,
+                                                login=self.__credentials.username if self.__credentials else "guest",
+                                                password=self.__credentials.password if self.__credentials else "guest"
+                                            )
                     self.producer_channel = await self.producer_connection.channel()
                     await self.producer_channel.set_qos(prefetch_count=self.prefetch_count)
                     
@@ -521,7 +531,11 @@ class Async_RMQ:
         for attempt in range(self.max_retries):
             try:
                 if not self.consumer_connection:
-                    self.consumer_connection = await aio_pika.connect_robust(self.connection_url)
+                    self.consumer_connection = await aio_pika.connect_robust(
+                                                self.__connection_url,
+                                                login=self.__credentials.username if self.__credentials else "guest",
+                                                password=self.__credentials.password if self.__credentials else "guest"
+                                            )
                     self.consumer_channel = await self.consumer_connection.channel()
                     await self.consumer_channel.set_qos(prefetch_count=self.prefetch_count)
                     
