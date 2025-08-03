@@ -395,11 +395,11 @@ class Async_RMQ:
         else:
             self.logs = LOGGER(None)
         connection_url: str=os.getenv("RMQ_URL", "localhost:5672")
-        parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
-        self.__connection_url = f"amqp://{parsed.hostname}:{parsed.port or 5672}"
+        self.__parsed = urlparse(f"//{connection_url}" if "://" not in connection_url else connection_url)
         self.__credentials = None
-        if parsed.username and parsed.password:
-            self.__credentials = pika.PlainCredentials(parsed.username, parsed.password)
+        if self.__parsed.username and self.__parsed.password:
+            self.__credentials = pika.PlainCredentials(self.__parsed.username, self.__parsed.password)
+            print(f"Using credentials: {self.__credentials.username} / {self.__credentials.password}")
         # Exchange configuration
         self.exchange_name = exchange_name  # Empty string means default exchange
         self.exchange_type = exchange_type  # direct, topic, fanout, headers
@@ -500,7 +500,8 @@ class Async_RMQ:
             try:
                 if not self.producer_connection:
                     self.producer_connection = await aio_pika.connect_robust(
-                                                self.__connection_url,
+                                                host=self.__parsed.hostname,
+                                                port=self.__parsed.port,
                                                 login=self.__credentials.username if self.__credentials else "guest",
                                                 password=self.__credentials.password if self.__credentials else "guest"
                                             )
@@ -532,7 +533,8 @@ class Async_RMQ:
             try:
                 if not self.consumer_connection:
                     self.consumer_connection = await aio_pika.connect_robust(
-                                                self.__connection_url,
+                                                host=self.__parsed.hostname,
+                                                port=self.__parsed.port,
                                                 login=self.__credentials.username if self.__credentials else "guest",
                                                 password=self.__credentials.password if self.__credentials else "guest"
                                             )
