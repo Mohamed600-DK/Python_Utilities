@@ -25,6 +25,8 @@ class Sync_RMQ:
         credentials = None
         if parsed.username and parsed.password:
             credentials = pika.PlainCredentials(parsed.username, parsed.password)
+        else:
+            credentials = pika.PlainCredentials("guest", "guest")
         # Connection parameters with proper settings
         self.__rmq_connection_parameters = pika.ConnectionParameters(
             host=parsed.hostname,
