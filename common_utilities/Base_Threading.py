@@ -16,6 +16,7 @@ class Base_Thread(ABC):
         self.thread_name=thread_name
         self.stop_thread = False
         self.thread=threading.Thread(target=self.run,name=self.thread_name,args=thread_arg)
+        self.thread_started = False
     
     def Start_thread(self):
         self.thread.start()
@@ -25,7 +26,15 @@ class Base_Thread(ABC):
     
     def Join_thread(self):
         self.thread.join()
+
+    def is_started(self):
+        """
+        Check if the thread is alive.
         
+        Returns:
+            bool: True if the thread is alive, False otherwise.
+        """
+        return self.thread_started
     @abstractmethod
-    def run(self):
+    def run(self):  
         pass 
