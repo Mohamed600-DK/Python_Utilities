@@ -14,6 +14,9 @@ def get_root_path(start=__file__,APP_HEAD="main.py"):
     Walks up the directory tree from the current file until it finds the marker file or directory.
     Returns the directory containing the marker, or the current file's parent if not found.
     """
+    root_dir=os.getenv("APP_ROOT",None)
+    if root_dir is not None and os.path.exists(root_dir):
+        return root_dir
     current_dir = os.path.abspath(os.path.dirname(start))
     root_dir = os.path.abspath(os.sep)
     while True:
