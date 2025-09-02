@@ -301,7 +301,7 @@ class Sync_RMQ:
                 except Exception as e:
                     self.logs.write_logs(f"Error handling message from queue '{queue_name}': {e}", LOG_LEVEL.ERROR)
                     self.logs.write_logs(traceback.format_exc(), LOG_LEVEL.DEBUG)
-                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
             self.channel_consumer.basic_consume(
                 queue=queue_name,
