@@ -161,8 +161,8 @@ class Sync_RMQ:
         if (not self.producer_connection or 
             self.producer_connection.is_closed or 
             not self.channel_producer or 
-            self.channel_producer.is_closed or
-            not self._health_check_connection("producer")):
+            self.channel_producer.is_closed 
+            ):#or not self._health_check_connection("producer")):
             
             self.logs.write_logs("Recreating producer connection due to health check failure", LOG_LEVEL.INFO)
             try:
@@ -178,8 +178,7 @@ class Sync_RMQ:
         if (not self.consumer_connection or 
             self.consumer_connection.is_closed or 
             not self.channel_consumer or 
-            self.channel_consumer.is_closed or
-            not self._health_check_connection("consumer")):
+            self.channel_consumer.is_closed ):#or not self._health_check_connection("producer")):
             
             self.logs.write_logs("Recreating consumer connection due to health check failure", LOG_LEVEL.INFO)
             try:
@@ -411,14 +410,12 @@ class Sync_RMQ:
             producer_ok = (self.producer_connection and 
                          not self.producer_connection.is_closed and
                          self.channel_producer and 
-                         not self.channel_producer.is_closed and
-                         self._health_check_connection("producer"))
+                         not self.channel_producer.is_closed )#or self._health_check_connection("producer"))
             
             consumer_ok = (self.consumer_connection and 
                          not self.consumer_connection.is_closed and
                          self.channel_consumer and 
-                         not self.channel_consumer.is_closed and
-                         self._health_check_connection("consumer"))
+                         not self.channel_consumer.is_closed )#or self._health_check_connection("consumer"))
             
             return producer_ok or consumer_ok
         except Exception as e:
@@ -434,8 +431,8 @@ class Sync_RMQ:
             "consumer_channel_open": self.channel_consumer and not self.channel_consumer.is_closed,
             "last_heartbeat_check": self._last_heartbeat_check,
             "heartbeat_interval": self._heartbeat_interval,
-            "declared_queues": list(self._declared_queues.keys()),
-            "note": "All connection settings controlled by RabbitMQ server"
+            "prefetch_count": self.prefetch_count,
+            "declared_queues": list(self._declared_queues.keys())
         }
 #-----------------------------------------------------------------------------------------------------------------------------------#
 class Async_RMQ:
@@ -562,8 +559,7 @@ class Async_RMQ:
         if (not self.producer_connection or 
             self.producer_connection.is_closed or 
             not self.producer_channel or 
-            self.producer_channel.is_closed or
-            not await self._health_check_connection("producer")):
+            self.producer_channel.is_closed ):#or not await self._health_check_connection("producer")):
             
             self.logs.write_logs("Recreating async producer connection due to health check failure", LOG_LEVEL.INFO)
             try:
@@ -579,8 +575,7 @@ class Async_RMQ:
         if (not self.consumer_connection or 
             self.consumer_connection.is_closed or 
             not self.consumer_channel or 
-            self.consumer_channel.is_closed or
-            not await self._health_check_connection("consumer")):
+            self.consumer_channel.is_closed):#or not await self._health_check_connection("consumer")):
             
             self.logs.write_logs("Recreating async consumer connection due to health check failure", LOG_LEVEL.INFO)
             try:
@@ -878,14 +873,12 @@ class Async_RMQ:
             producer_ok = (self.producer_connection and 
                          not self.producer_connection.is_closed and
                          self.producer_channel and 
-                         not self.producer_channel.is_closed and
-                         await self._health_check_connection("producer"))
+                         not self.producer_channel.is_closed )#and await self._health_check_connection("producer"))
             
             consumer_ok = (self.consumer_connection and 
                          not self.consumer_connection.is_closed and
                          self.consumer_channel and 
-                         not self.consumer_channel.is_closed and
-                         await self._health_check_connection("consumer"))
+                         not self.consumer_channel.is_closed )#and await self._health_check_connection("consumer"))
             
             return producer_ok or consumer_ok
         except Exception as e:
