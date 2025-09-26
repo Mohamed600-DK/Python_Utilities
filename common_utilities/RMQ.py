@@ -27,16 +27,12 @@ class Sync_RMQ:
             credentials = pika.PlainCredentials(parsed.username, parsed.password)
         else:
             credentials = pika.PlainCredentials("guest", "guest")
-        # Connection parameters with proper settings
+        # Minimal connection parameters - server controls all settings
         self.__rmq_connection_parameters = pika.ConnectionParameters(
             host=parsed.hostname,
             port=parsed.port or 5672,
-            credentials=credentials,
-            connection_attempts=3,
-            retry_delay=2,
-            socket_timeout=10,
-            heartbeat=600,
-            blocked_connection_timeout=300
+            credentials=credentials
+            # All other settings (heartbeat, timeouts, frame_max, etc.) controlled by server
         )
         
         # Exchange configuration
@@ -44,12 +40,16 @@ class Sync_RMQ:
         self.exchange_type = exchange_type  # direct, topic, fanout, headers
         self.exchange_durable = True
         
-        # Configuration
-        self.max_retries = 3
-        self.retry_delay = 1
-        self.prefetch_count = 10
-        self.durable_queues = False
+        # Configuration - server controls most settings, minimal client overrides
+        self.max_retries = int(os.getenv("RMQ_MAX_RETRIES", "3"))  # Client retry logic only
+        self.retry_delay = int(os.getenv("RMQ_RETRY_DELAY", "1"))   # Client retry delay only
+        # Server controls: prefetch_count, heartbeat, timeouts, frame_max, etc.
+        self.durable_queues = True
         self.persistent_messages = False
+        # Connection health monitoring - server controls heartbeat
+        self._last_heartbeat_check = 0
+        self._heartbeat_interval = 30  # Fixed 30-second interval for health checks
+        self._connection_health_check_interval = 60
         # Connection objects
         self.producer_connection = None
         self.consumer_connection = None
@@ -93,13 +93,45 @@ class Sync_RMQ:
             self.channel_consumer = None
             self._declared_queues.clear()
 
+    def _health_check_connection(self, connection_type: str = "producer"):
+        """Check connection health and heartbeat status"""
+        try:
+            current_time = time.time()
+            if current_time - self._last_heartbeat_check < self._heartbeat_interval:
+                return True
+            
+            if connection_type == "producer":
+                if (self.producer_connection and 
+                    not self.producer_connection.is_closed and 
+                    self.channel_producer and 
+                    not self.channel_producer.is_closed):
+                    # Send a heartbeat-like operation to test connection
+                    self.channel_producer.queue_declare(queue='__health_check__', passive=True, arguments={'x-expires': 1000})
+                    self._last_heartbeat_check = current_time
+                    return True
+            else:  # consumer
+                if (self.consumer_connection and 
+                    not self.consumer_connection.is_closed and 
+                    self.channel_consumer and 
+                    not self.channel_consumer.is_closed):
+                    # Test consumer connection health
+                    self.channel_consumer.queue_declare(queue='__health_check__', passive=True, arguments={'x-expires': 1000})
+                    self._last_heartbeat_check = current_time
+                    return True
+            
+            return False
+        except Exception as e:
+            self.logs.write_logs(f"Connection health check failed for {connection_type}: {e}", LOG_LEVEL.WARNING)
+            return False
+
     def _create_connection(self, connection_type: str = "producer"):
         """Create connection with retry logic"""
         for attempt in range(self.max_retries):
             try:
                 connection = pika.BlockingConnection(self.__rmq_connection_parameters)
                 channel = connection.channel()
-                channel.basic_qos(prefetch_count=self.prefetch_count)
+                # Server controls prefetch_count, so no need to set it here
+                # channel.basic_qos(prefetch_count=self.prefetch_count)  # Removed - server controlled
                 
                 # Declare exchange if not using default
                 if self.exchange_name:
@@ -125,32 +157,36 @@ class Sync_RMQ:
                 raise
 
     def _ensure_producer_connection(self):
-        """Ensure producer connection is active"""
+        """Ensure producer connection is active with health check"""
         if (not self.producer_connection or 
             self.producer_connection.is_closed or 
             not self.channel_producer or 
-            self.channel_producer.is_closed):
+            self.channel_producer.is_closed or
+            not self._health_check_connection("producer")):
             
+            self.logs.write_logs("Recreating producer connection due to health check failure", LOG_LEVEL.INFO)
             try:
                 if self.producer_connection and not self.producer_connection.is_closed:
                     self.producer_connection.close()
-            except:
-                pass
+            except Exception as e:
+                self.logs.write_logs(f"Error closing old producer connection: {e}", LOG_LEVEL.WARNING)
             
             self.producer_connection, self.channel_producer = self._create_connection("producer")
 
     def _ensure_consumer_connection(self):
-        """Ensure consumer connection is active"""
+        """Ensure consumer connection is active with health check"""
         if (not self.consumer_connection or 
             self.consumer_connection.is_closed or 
             not self.channel_consumer or 
-            self.channel_consumer.is_closed):
+            self.channel_consumer.is_closed or
+            not self._health_check_connection("consumer")):
             
+            self.logs.write_logs("Recreating consumer connection due to health check failure", LOG_LEVEL.INFO)
             try:
                 if self.consumer_connection and not self.consumer_connection.is_closed:
                     self.consumer_connection.close()
-            except:
-                pass
+            except Exception as e:
+                self.logs.write_logs(f"Error closing old consumer connection: {e}", LOG_LEVEL.WARNING)
             
             self.consumer_connection, self.channel_consumer = self._create_connection("consumer")
 
@@ -370,21 +406,37 @@ class Sync_RMQ:
         return queue_name in self._declared_queues
 
     def is_connected(self) -> bool:
-        """Check if connections are active"""
+        """Check if connections are active and healthy"""
         try:
             producer_ok = (self.producer_connection and 
                          not self.producer_connection.is_closed and
                          self.channel_producer and 
-                         not self.channel_producer.is_closed)
+                         not self.channel_producer.is_closed and
+                         self._health_check_connection("producer"))
             
             consumer_ok = (self.consumer_connection and 
                          not self.consumer_connection.is_closed and
                          self.channel_consumer and 
-                         not self.channel_consumer.is_closed)
+                         not self.channel_consumer.is_closed and
+                         self._health_check_connection("consumer"))
             
             return producer_ok or consumer_ok
-        except:
+        except Exception as e:
+            self.logs.write_logs(f"Error checking connection health: {e}", LOG_LEVEL.WARNING)
             return False
+    
+    def get_connection_info(self) -> dict:
+        """Get detailed connection information for debugging"""
+        return {
+            "producer_connected": self.producer_connection and not self.producer_connection.is_closed,
+            "consumer_connected": self.consumer_connection and not self.consumer_connection.is_closed,
+            "producer_channel_open": self.channel_producer and not self.channel_producer.is_closed,
+            "consumer_channel_open": self.channel_consumer and not self.channel_consumer.is_closed,
+            "last_heartbeat_check": self._last_heartbeat_check,
+            "heartbeat_interval": self._heartbeat_interval,
+            "declared_queues": list(self._declared_queues.keys()),
+            "note": "All connection settings controlled by RabbitMQ server"
+        }
 #-----------------------------------------------------------------------------------------------------------------------------------#
 class Async_RMQ:
     def __init__(self, exchange_name: str = "", exchange_type: str = "direct",logger:Optional[Union[LOGGER,str]]=None):
@@ -413,12 +465,15 @@ class Async_RMQ:
         self.producer_channel: Optional[aio_pika.abc.AbstractChannel] = None
         self.consumer_channel: Optional[aio_pika.abc.AbstractChannel] = None
 
-        # Configuration
-        self.max_retries = 3
-        self.retry_delay = 1
-        self.prefetch_count = 10
-        self.durable_queues = False
+        # Configuration - server controls connection settings, minimal client config
+        self.max_retries = int(os.getenv("RMQ_MAX_RETRIES", "3"))  # Client retry logic only
+        self.retry_delay = int(os.getenv("RMQ_RETRY_DELAY", "1"))   # Client retry delay only
+        # Server controls: prefetch_count, heartbeat, timeouts, frame_max, etc.
+        self.durable_queues = True
         self.persistent_messages = False
+        # Connection health monitoring - server controls all connection parameters
+        self._last_heartbeat_check = 0
+        self._heartbeat_interval = 30  # Fixed interval for health checks only
 
         # Consumer callbacks storage
         self._consumer_callbacks = []  # Stores (queue_name, callback) for registration before consuming
@@ -466,49 +521,92 @@ class Async_RMQ:
             self.consumer_channel = None
             self._declared_queues.clear()
 
+    async def _health_check_connection(self, connection_type: str = "producer"):
+        """Async connection health check"""
+        try:
+            current_time = time.time()
+            if current_time - self._last_heartbeat_check < self._heartbeat_interval:
+                return True
+            
+            if connection_type == "producer":
+                if (self.producer_connection and 
+                    not self.producer_connection.is_closed and 
+                    self.producer_channel and 
+                    not self.producer_channel.is_closed):
+                    # Test connection with a lightweight operation
+                    await asyncio.wait_for(
+                        self.producer_channel.declare_queue('__health_check__', passive=True, arguments={'x-expires': 1000}),
+                        timeout=5.0
+                    )
+                    self._last_heartbeat_check = current_time
+                    return True
+            else:  # consumer
+                if (self.consumer_connection and 
+                    not self.consumer_connection.is_closed and 
+                    self.consumer_channel and 
+                    not self.consumer_channel.is_closed):
+                    await asyncio.wait_for(
+                        self.consumer_channel.declare_queue('__health_check__', passive=True, arguments={'x-expires': 1000}),
+                        timeout=5.0
+                    )
+                    self._last_heartbeat_check = current_time
+                    return True
+            
+            return False
+        except (asyncio.TimeoutError, Exception) as e:
+            self.logs.write_logs(f"Async connection health check failed for {connection_type}: {e}", LOG_LEVEL.WARNING)
+            return False
+
     async def _ensure_producer_connection(self):
-        """Ensure producer connection is active"""
+        """Ensure producer connection is active with async health check"""
         if (not self.producer_connection or 
             self.producer_connection.is_closed or 
             not self.producer_channel or 
-            self.producer_channel.is_closed):
+            self.producer_channel.is_closed or
+            not await self._health_check_connection("producer")):
             
+            self.logs.write_logs("Recreating async producer connection due to health check failure", LOG_LEVEL.INFO)
             try:
                 if self.producer_connection and not self.producer_connection.is_closed:
                     await self.producer_connection.close()
-            except:
-                pass
+            except Exception as e:
+                self.logs.write_logs(f"Error closing old async producer connection: {e}", LOG_LEVEL.WARNING)
             
             await self.__connect_producer()
 
     async def _ensure_consumer_connection(self):
-        """Ensure consumer connection is active"""
+        """Ensure consumer connection is active with async health check"""
         if (not self.consumer_connection or 
             self.consumer_connection.is_closed or 
             not self.consumer_channel or 
-            self.consumer_channel.is_closed):
+            self.consumer_channel.is_closed or
+            not await self._health_check_connection("consumer")):
             
+            self.logs.write_logs("Recreating async consumer connection due to health check failure", LOG_LEVEL.INFO)
             try:
                 if self.consumer_connection and not self.consumer_connection.is_closed:
                     await self.consumer_connection.close()
-            except:
-                pass
+            except Exception as e:
+                self.logs.write_logs(f"Error closing old async consumer connection: {e}", LOG_LEVEL.WARNING)
             
             await self.__connect_consumer()
 
     async def __connect_producer(self):
-        """Connect producer with retry logic"""
+        """Connect producer with retry logic and proper heartbeat settings"""
         for attempt in range(self.max_retries):
             try:
                 if not self.producer_connection:
+                    # Minimal connection - server controls all connection settings
                     self.producer_connection = await aio_pika.connect_robust(
-                                                host=self.__parsed.hostname,
-                                                port=self.__parsed.port,
-                                                login=self.__credentials.username if self.__credentials else "guest",
-                                                password=self.__credentials.password if self.__credentials else "guest"
-                                            )
+                        host=self.__parsed.hostname,
+                        port=self.__parsed.port,
+                        login=self.__credentials.username if self.__credentials else "guest",
+                        password=self.__credentials.password if self.__credentials else "guest"
+                        # All other settings controlled by server (heartbeat, timeouts, etc.)
+                    )
                     self.producer_channel = await self.producer_connection.channel()
-                    await self.producer_channel.set_qos(prefetch_count=self.prefetch_count)
+                    # Server controls prefetch_count via consumer_prefetch setting
+                    # await self.producer_channel.set_qos(prefetch_count=self.prefetch_count)  # Removed
                     
                     # Declare exchange if not using default
                     if self.exchange_name:
@@ -530,18 +628,21 @@ class Async_RMQ:
                     raise
 
     async def __connect_consumer(self):
-        """Connect consumer with retry logic"""
+        """Connect consumer with retry logic and proper heartbeat settings"""
         for attempt in range(self.max_retries):
             try:
                 if not self.consumer_connection:
+                    # Minimal connection - server controls all connection settings
                     self.consumer_connection = await aio_pika.connect_robust(
-                                                host=self.__parsed.hostname,
-                                                port=self.__parsed.port,
-                                                login=self.__credentials.username if self.__credentials else "guest",
-                                                password=self.__credentials.password if self.__credentials else "guest"
-                                            )
+                        host=self.__parsed.hostname,
+                        port=self.__parsed.port,
+                        login=self.__credentials.username if self.__credentials else "guest",
+                        password=self.__credentials.password if self.__credentials else "guest"
+                        # All other settings controlled by server (heartbeat, timeouts, etc.)
+                    )
                     self.consumer_channel = await self.consumer_connection.channel()
-                    await self.consumer_channel.set_qos(prefetch_count=self.prefetch_count)
+                    # Server controls prefetch_count via consumer_prefetch setting
+                    # await self.consumer_channel.set_qos(prefetch_count=self.prefetch_count)  # Removed
                     
                     # Declare exchange if not using default
                     if self.exchange_name:
@@ -771,22 +872,38 @@ class Async_RMQ:
         """Check if a queue has been declared"""
         return queue_name in self._declared_queues
 
-    def is_connected(self) -> bool:
-        """Check if connections are active"""
+    async def is_connected(self) -> bool:
+        """Check if async connections are active and healthy"""
         try:
             producer_ok = (self.producer_connection and 
                          not self.producer_connection.is_closed and
                          self.producer_channel and 
-                         not self.producer_channel.is_closed)
+                         not self.producer_channel.is_closed and
+                         await self._health_check_connection("producer"))
             
             consumer_ok = (self.consumer_connection and 
                          not self.consumer_connection.is_closed and
                          self.consumer_channel and 
-                         not self.consumer_channel.is_closed)
+                         not self.consumer_channel.is_closed and
+                         await self._health_check_connection("consumer"))
             
             return producer_ok or consumer_ok
-        except:
+        except Exception as e:
+            self.logs.write_logs(f"Error checking async connection health: {e}", LOG_LEVEL.WARNING)
             return False
+    
+    async def get_connection_info(self) -> dict:
+        """Get detailed async connection information for debugging"""
+        return {
+            "producer_connected": self.producer_connection and not self.producer_connection.is_closed,
+            "consumer_connected": self.consumer_connection and not self.consumer_connection.is_closed,
+            "producer_channel_open": self.producer_channel and not self.producer_channel.is_closed,
+            "consumer_channel_open": self.consumer_channel and not self.consumer_channel.is_closed,
+            "last_heartbeat_check": self._last_heartbeat_check,
+            "heartbeat_interval": self._heartbeat_interval,
+            "declared_queues": list(self._declared_queues.keys()),
+            "note": "All connection settings controlled by RabbitMQ server"
+        }
 
 
 
